@@ -1,0 +1,250 @@
+#USING GOOGLE COLAB
+from google.colab import drive
+import os
+from PIL import Image
+import numpy as np
+import torch
+import torch.nn as nn
+from sklearn import datasets
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import LabelEncoder
+
+# Mount Google Drive
+#drive.mount('/content/drive/')
+
+# Define the path to your image directory in Google Drive
+data_dir = '/content/drive/MyDrive/data/Vehicles'  # Main vehicles directory
+
+# Define all vehicle categories and their corresponding folder names
+vehicle_categories = {
+    'Cars': 'Cars',
+    'Auto Rickshaws': 'Auto Rickshaws',  # Note: keeping your original folder name
+    'Bikes': 'Bikes',
+    'Motorcycles': 'Motorcycles',
+    'Planes': 'Planes',
+    'Ships': 'Ships',
+    'Trains': 'Trains'
+}
+
+# Define image dimensions and other transformations
+img_height = 128
+img_width = 128
+
+all_images = []
+all_labels = [] # Assuming you have a way to get labels, e.g., from folder names or a separate file
+
+
+for category_name, folder_name in vehicle_categories.items():
+    category_dir = os.path.join(data_dir, folder_name)
+
+# Check if directory exists
+    if not os.path.exists(category_dir):
+        print(f"Warning: Directory '{category_dir}' not found. Skipping {category_name}.")
+        continue
+
+# Get all image files in this category
+    image_files = [f for f in os.listdir(category_dir) ]
+
+    print(f"Processing {category_name}: Found {len(image_files)} images")
+
+    category_images = []
+    successful_loads = 0
+
+    for img_file in image_files:
+        img_path = os.path.join(category_dir, img_file)
+        try:
+          # Open and resize the image
+          img = Image.open(img_path).resize((img_width, img_height))
+          # Convert to numpy array
+          img_array = np.array(img)
+
+          # Ensure image has 3 channels (for color images)
+          if img_array.shape[-1] != 3:
+              #img_array = img_array.convert('RGB')
+              #img_array = Image.fromarray(img_array, dtype=np.float32).convert('RGB')
+              img_array = Image.fromarray(img_array).convert('RGB')
+
+
+          img_array = np.array(img_array)
+
+          # Normalize pixel values to be between 0 and 1
+          img_array = img_array.astype(np.float32) / 255.0
+
+          category_images.append(img_array)
+          all_labels.append(category_name)
+          successful_loads += 1
+
+        except Exception as e:
+          print(f"Error processing {img_file}: {e}")
+
+   # Add all images from this category to the main list
+    all_images.extend(category_images)
+    print(f"  Successfully loaded: {successful_loads}/{len(image_files)} images")
+    print()       
+
+
+# Convert the list of image arrays to a single numpy array
+#images = np.array(images)
+
+all_images = np.array(all_images)
+all_labels = np.array(all_labels)
+
+# Print dataset summary
+print("Dataset Summary:")
+print(f"Total images loaded: {len(all_images)}")
+print(f"Image shape: {all_images.shape}")
+print(f"Labels shape: {all_labels.shape}")
+print()
+
+# Encode labels to numeric values
+label_encoder = LabelEncoder()
+numeric_labels = label_encoder.fit_transform(all_labels)
+
+print("Label encoding:")
+for i, class_name in enumerate(label_encoder.classes_):
+    print(f"  {class_name}: {i}")
+print()
+
+# Split into train/validation/test sets
+# First split: 80% train, 20% temp (which will be split into 10% val, 10% test)
+X_train, X_temp, y_train, y_temp = train_test_split(
+    all_images, numeric_labels, 
+    test_size=0.2, 
+    random_state=42,
+    stratify=numeric_labels
+)
+
+# Second split: Split temp into validation and test (50-50, so 10% each of total)
+X_val, X_test, y_val, y_test = train_test_split(
+    X_temp, y_temp,
+    test_size=0.5,
+    random_state=42,
+    stratify=y_temp
+)
+
+print("Dataset splits:")
+print(f"  Training set: {X_train.shape[0]} images ({X_train.shape[0]/len(all_images)*100:.1f}%)")
+print(f"  Validation set: {X_val.shape[0]} images ({X_val.shape[0]/len(all_images)*100:.1f}%)")
+print(f"  Test set: {X_test.shape[0]} images ({X_test.shape[0]/len(all_images)*100:.1f}%)")
+print()
+
+# Show class distribution in each split
+print("Training set class distribution:")
+train_unique, train_counts = np.unique(y_train, return_counts=True)
+for label_idx, count in zip(train_unique, train_counts):
+    class_name = label_encoder.classes_[label_idx]
+    print(f"  {class_name}: {count} images")
+print()
+
+print("Setup complete! Ready for training.")
+print()
+print("Available variables:")
+print("  - model: Modified ResNet18 with 7 output classes")
+print("  - train_loader, val_loader, test_loader: PyTorch DataLoaders")
+print("  - device: cuda/cpu device")
+print("  - label_encoder: For converting between numeric and string labels")
+print("  - num_classes: 7")
+print()
+print("Sample training code:")
+
+#Define loss function and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# Training loop 
+model.train()
+for batch_idx, (data, target) in enumerate(train_loader):
+    data, target = data.to(device), target.to(device)
+    optimizer.zero_grad()
+    output = model(data)
+    loss = criterion(output, target)
+    loss.backward()
+    optimizer.step()
+
+# Convert numpy arrays to PyTorch tensors
+print("Converting data to PyTorch tensors...")
+X_train_tensor = torch.FloatTensor(X_train).permute(0, 3, 1, 2)  # Convert from NHWC to NCHW format
+X_val_tensor = torch.FloatTensor(X_val).permute(0, 3, 1, 2)
+X_test_tensor = torch.FloatTensor(X_test).permute(0, 3, 1, 2)
+
+y_train_tensor = torch.LongTensor(y_train)
+y_val_tensor = torch.LongTensor(y_val)
+y_test_tensor = torch.LongTensor(y_test)
+
+print(f"Tensor shapes:")
+print(f"  X_train: {X_train_tensor.shape} (N, C, H, W)")
+print(f"  X_val: {X_val_tensor.shape}")
+print(f"  X_test: {X_test_tensor.shape}")
+print()
+
+# Create PyTorch datasets
+train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+# Create data loaders
+batch_size = 32
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+print(f"DataLoaders created with batch size: {batch_size}")
+print(f"  Training batches: {len(train_loader)}")
+print(f"  Validation batches: {len(val_loader)}")
+print(f"  Test batches: {len(test_loader)}")
+print()
+
+# Load ResNet18 and modify final layer
+print("Setting up ResNet18 model...")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
+# Load pre-trained ResNet18
+model = models.resnet18(pretrained=True)
+
+# Get the number of input features for the final layer
+num_features = model.fc.in_features
+print(f"Original final layer input features: {num_features}")
+
+# Replace the final fully connected layer
+# ResNet18 originally has 1000 output classes, we need 7
+num_classes = 7
+model.fc = nn.Linear(num_features, num_classes)
+
+# Move model to device
+model = model.to(device)
+
+print(f"Modified ResNet18 architecture:")
+print(f"  Final layer: Linear({num_features} -> {num_classes})")
+print(f"  Output classes: {num_classes}")
+print()
+
+# Print model summary for the final layer
+print("Final layer details:")
+print(f"  Input features: {model.fc.in_features}")
+print(f"  Output features: {model.fc.out_features}")
+print(f"  Bias: {model.fc.bias is not None}")
+print()
+num_epochs = 4
+for epoch in range(num_epochs):
+    # forward pass and loss
+    y_predicted = model(X_train_tensor)
+    loss = criterion(y_predicted, y_train_tensor)
+
+    #backward pass
+    loss.backward()
+
+    #update
+    optimizer.step()
+
+    optimizer.zero_grad()
+
+    if (epoch + 1) % 1 == 0:
+        print(f'epoch: {epoch+1}, loss = {loss.item():.4f}')
+
+## plot
+predicted = model(x).detach().numpy()
+
+plt.plot(X_train_tensor, y_train_tensor, 'ro')
+plt.plot(X_train_tensor, predicted, 'b')
+plt.show()
